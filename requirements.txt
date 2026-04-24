@@ -1,10 +1,24 @@
-Flask==2.3.3
-Flask-CORS==4.0.0
-Flask-SQLAlchemy==3.0.5
-# face-recognition==1.3.0
-opencv-python==4.8.0.76
-Pillow==10.0.0
-numpy==1.24.3
-PyJWT==2.8.0
-Werkzeug==2.3.7
-SQLAlchemy==2.0.20
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+sqlalchemy==2.0.35
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9
+python-dotenv==1.0.1
+httpx==0.27.2
+pydantic==2.9.2
+aiofiles==24.1.0
+
+# Reporting
+reportlab==4.2.2
+openpyxl==3.1.5
+
+# Face Recognition (install separately if issues on your OS)
+# See scripts/install_face_recognition.sh
+opencv-python-headless==4.10.0.84
+face-recognition==1.3.0
+numpy==1.26.4
+Pillow==10.4.0
+
+# Optional: PostgreSQL support
+# psycopg2-binary==2.9.9
