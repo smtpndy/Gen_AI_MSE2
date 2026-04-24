@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Query — FaceAttend</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .chat-area { display:flex; flex-direction:column; gap:16px; min-height:400px; max-height:600px; overflow-y:auto; padding-right:4px; }
+  .chat-area::-webkit-scrollbar { width:4px; }
+  .chat-area::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+  .msg { display:flex; gap:12px; animation: fadeUp 0.3s ease; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  .msg-user { flex-direction:row-reverse; }
+  .msg-bubble {
+    max-width: 75%; padding: 14px 18px;
+    border-radius: 16px; font-size: 14px; line-height: 1.6;
+  }
+  .msg-user .msg-bubble {
+    background: linear-gradient(135deg, var(--accent), #8b83ff);
+    color: white; border-bottom-right-radius: 4px;
+  }
+  .msg-ai .msg-bubble {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    color: var(--text2); border-bottom-left-radius: 4px;
+  }
+  .msg-avatar {
+    width:36px; height:36px; border-radius:10px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-size:16px;
+  }
+  .msg-ai .msg-avatar { background:linear-gradient(135deg,var(--accent2),var(--accent)); }
+  .msg-user .msg-avatar { background:linear-gradient(135deg,var(--accent),var(--accent3)); color:white; font-weight:700; font-size:13px; }
+  .query-input-row { display:flex; gap:10px; margin-top:16px; }
+  .query-input-row input { flex:1; font-size:15px; padding:14px 18px; border-radius:14px; }
+  .sql-block {
+    margin-top:10px; padding:10px 14px;
+    background:rgba(0,0,0,0.3); border-radius:8px;
+    font-family:monospace; font-size:11px; color:var(--accent2);
+    border-left:2px solid var(--accent); overflow-x:auto;
+    white-space:pre-wrap; word-break:break-all;
+  }
+  .result-table { margin-top:10px; overflow-x:auto; }
+  .result-table table { font-size:12px; }
+  .suggestion-chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+  .chip {
+    padding:6px 14px; border-radius:20px;
+    background:rgba(108,99,255,0.1);
+    border:1px solid rgba(108,99,255,0.2);
+    color:var(--text2); font-size:12px; cursor:pointer;
+    transition:all 0.2s;
+  }
+  .chip:hover { background:rgba(108,99,255,0.2); color:var(--text); }
+  .status-badge {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:4px 12px; border-radius:20px; font-size:11px; font-weight:600;
+  }
+  .status-ai { background:rgba(0,229,160,0.1); color:var(--success); border:1px solid rgba(0,229,160,0.2); }
+  .status-rule { background:rgba(255,179,71,0.1); color:var(--warning); border:1px solid rgba(255,179,71,0.2); }
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<main class="main">
+  <div class="page-header">
+    <div style="display:flex;align-items:center;gap:16px">
+      <div>
+        <h1>🤖 AI Query</h1>
+        <p>Ask attendance questions in plain English — powered by AI</p>
+      </div>
+      <div id="aiStatus" style="margin-left:auto"></div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;align-items:start">
+    <!-- Chat Panel -->
+    <div class="card">
+      <div class="chat-area" id="chatArea">
+        <div class="msg msg-ai">
+          <div class="msg-avatar">🤖</div>
+          <div class="msg-bubble">
+            <strong>Hello!</strong> I'm your AI attendance assistant. Ask me anything about attendance data in plain English.<br><br>
+            Examples:<br>
+            • "Show attendance of CSE branch last week"<br>
+            • "Who has low attendance?"<br>
+            • "How many students attended today?"<br>
+            • "Show summary for this month"
+          </div>
+        </div>
+      </div>
+      <div class="query-input-row">
+        <input id="queryInput" placeholder="Ask anything about attendance..." onkeydown="if(event.key==='Enter')sendQuery()">
+        <button class="btn btn-primary" onclick="sendQuery()" id="sendBtn">
+          ➤ Ask
+        </button>
+      </div>
+    </div>
+
+    <!-- Examples Panel -->
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="section-title">💡 Example Queries</div>
+        <div id="examplesList" style="display:flex;flex-direction:column;gap:8px">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-title">📖 Tips</div>
+        <ul style="color:var(--muted);font-size:13px;line-height:1.8;padding-left:16px">
+          <li>Use branch names: CSE, ECE, ME, CE, EE, IT</li>
+          <li>Dates: "today", "last week", "this month"</li>
+          <li>"low attendance" = below 75%</li>
+          <li>Add OpenAI key for AI-powered insights</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/js/app.js"></script>
+<script>
+requireAuth();
+document.getElementById('sidebar-container').innerHTML = buildNav('ai');
+const username = getUsername();
+
+async function loadStatus() {
+  const data = await apiGet('/ai/status');
+  if (!data) return;
+  document.getElementById('aiStatus').innerHTML = data.openai_configured
+    ? `<span class="status-badge status-ai">⚡ OpenAI Active</span>`
+    : `<span class="status-badge status-rule">⚙ Rule-Based Mode</span>`;
+}
+
+async function loadExamples() {
+  const data = await apiGet('/ai/examples');
+  if (!data) return;
+  document.getElementById('examplesList').innerHTML = data.examples.map(q => `
+    <button class="chip" style="text-align:left;border-radius:10px;padding:8px 12px" onclick="setQuery('${q.replace(/'/g,"\\'")}')">
+      ${q}
+    </button>
+  `).join('');
+}
+
+function setQuery(q) {
+  document.getElementById('queryInput').value = q;
+  sendQuery();
+}
+
+function appendUserMsg(text) {
+  const chat = document.getElementById('chatArea');
+  chat.innerHTML += `
+    <div class="msg msg-user">
+      <div class="msg-avatar">${username ? username[0].toUpperCase() : 'U'}</div>
+      <div class="msg-bubble">${text}</div>
+    </div>`;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function appendAIMsg(html) {
+  const chat = document.getElementById('chatArea');
+  chat.innerHTML += `
+    <div class="msg msg-ai">
+      <div class="msg-avatar">🤖</div>
+      <div class="msg-bubble">${html}</div>
+    </div>`;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function appendThinking() {
+  const chat = document.getElementById('chatArea');
+  chat.innerHTML += `
+    <div class="msg msg-ai" id="thinkingMsg">
+      <div class="msg-avatar">🤖</div>
+      <div class="msg-bubble"><div class="loading" style="padding:4px 0"><div class="spinner"></div> Analyzing query...</div></div>
+    </div>`;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function sendQuery() {
+  const q = document.getElementById('queryInput').value.trim();
+  if (!q) return;
+  document.getElementById('queryInput').value = '';
+  document.getElementById('sendBtn').disabled = true;
+
+  appendUserMsg(q);
+  appendThinking();
+
+  const r = await apiPost('/ai/query', { query: q });
+  document.getElementById('thinkingMsg')?.remove();
+  document.getElementById('sendBtn').disabled = false;
+
+  if (!r || !r.ok) {
+    appendAIMsg(`<span style="color:var(--danger)">⚠ Query failed. Please try again.</span>`);
+    return;
+  }
+
+  const data = r.data;
+  const rows = data.result?.rows || [];
+  const count = data.result?.count || 0;
+
+  let html = `<strong>💡 ${data.summary}</strong>`;
+  html += `<div style="margin-top:6px;color:var(--muted);font-size:12px">${data.result.explanation} • ${count} record(s)</div>`;
+
+  if (data.sql_query) {
+    html += `<div class="sql-block">${data.sql_query.trim()}</div>`;
+  }
+
+  if (rows.length > 0) {
+    const cols = Object.keys(rows[0]);
+    html += `<div class="result-table">
+      <table>
+        <thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+        <tbody>${rows.slice(0,10).map(row =>
+          `<tr>${cols.map(c => `<td>${row[c] ?? '-'}</td>`).join('')}</tr>`
+        ).join('')}</tbody>
+      </table>
+      ${rows.length > 10 ? `<div style="font-size:11px;color:var(--muted);margin-top:6px">Showing 10 of ${rows.length} rows</div>` : ''}
+    </div>`;
+  }
+
+  if (data.suggestions?.length) {
+    html += `<div class="suggestion-chips">
+      ${data.suggestions.map(s => `<span class="chip" onclick="setQuery('${s.replace(/'/g,"\\'")}')">↩ ${s}</span>`).join('')}
+    </div>`;
+  }
+
+  appendAIMsg(html);
+}
+
+async function apiPost(path, body) {
+  const r = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(body)
+  });
+  if (r.status === 401) { logout(); return null; }
+  return { ok: r.ok, data: await r.json() };
+}
+
+loadStatus();
+loadExamples();
+</script>
+</body>
+</html>

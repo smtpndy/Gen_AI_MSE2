@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — FaceAttend</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<main class="main">
+  <div class="page-header">
+    <h1>Dashboard</h1>
+    <p id="dateStr">Loading...</p>
+  </div>
+
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card blue">
+      <div class="stat-label">📊 Total Students</div>
+      <div class="stat-value" id="totalStudents">—</div>
+      <div class="stat-sub">Registered & active</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">✅ Present Today</div>
+      <div class="stat-value" id="todayPresent">—</div>
+      <div class="stat-sub" id="todayPct">—</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-label">❌ Absent Today</div>
+      <div class="stat-value" id="todayAbsent">—</div>
+      <div class="stat-sub">Need to be marked</div>
+    </div>
+    <div class="stat-card orange">
+      <div class="stat-label">🏢 Branches</div>
+      <div class="stat-value" id="totalBranches">—</div>
+      <div class="stat-sub">Active departments</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px">
+    <!-- Attendance Progress -->
+    <div class="card">
+      <div class="section-title">📈 Today's Attendance Rate</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="color:var(--muted);font-size:13px">Overall attendance</span>
+        <span style="font-family:var(--font-head);font-size:20px;font-weight:800;color:white" id="pctBig">—%</span>
+      </div>
+      <div class="progress-bar" style="height:12px;border-radius:6px">
+        <div class="progress-fill" id="attBar" style="width:0%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:12px;color:var(--muted)">
+        <span>0%</span><span>Target: 75%</span><span>100%</span>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card">
+      <div class="section-title">⚡ Quick Actions</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <a href="/attendance" class="btn btn-primary" style="text-decoration:none;justify-content:center">
+          📸 Start Live Attendance
+        </a>
+        <a href="/register" class="btn btn-secondary" style="text-decoration:none;justify-content:center">
+          👤 Register New Student
+        </a>
+        <a href="/reports" class="btn btn-secondary" style="text-decoration:none;justify-content:center">
+          📋 Generate Report
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+    <!-- Recent Entries -->
+    <div class="card">
+      <div class="section-title">🕐 Recent Entries</div>
+      <div id="recentEntries">
+        <div class="loading"><div class="spinner"></div> Loading...</div>
+      </div>
+    </div>
+
+    <!-- AI Quick Query -->
+    <div class="card">
+      <div class="section-title">🤖 AI Quick Query</div>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Ask anything about attendance in plain English</p>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <input id="quickQuery" placeholder="e.g. Who has low attendance?" style="flex:1">
+        <button class="btn btn-primary" onclick="runQuickQuery()">Ask</button>
+      </div>
+      <div id="queryExamples" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
+      <div id="queryResult" style="display:none;background:var(--surface);border-radius:10px;padding:16px;font-size:13px;color:var(--text2);line-height:1.6"></div>
+    </div>
+  </div>
+</main>
+
+<script src="/js/app.js"></script>
+<script>
+requireAuth();
+document.getElementById('sidebar-container').innerHTML = buildNav('dashboard');
+document.getElementById('dateStr').textContent = new Date().toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+async function loadDashboard() {
+  const stats = await apiGet('/attendance/stats/overview');
+  if (!stats) return;
+  document.getElementById('totalStudents').textContent = stats.total_students;
+  document.getElementById('todayPresent').textContent = stats.today_present;
+  document.getElementById('todayAbsent').textContent = stats.today_absent;
+  document.getElementById('totalBranches').textContent = stats.branches;
+  document.getElementById('pctBig').textContent = stats.today_percentage + '%';
+  document.getElementById('todayPct').textContent = `${stats.today_percentage}% attendance rate`;
+  document.getElementById('attBar').style.width = stats.today_percentage + '%';
+
+  const recentHTML = stats.recent_entries.length > 0
+    ? stats.recent_entries.map(e => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">${e.name[0]}</div>
+            <div>
+              <div style="font-size:14px;color:var(--text)">${e.name}</div>
+              <div style="font-size:12px;color:var(--muted)">${e.branch}</div>
+            </div>
+          </div>
+          <span style="font-size:13px;color:var(--muted)">${e.time}</span>
+        </div>
+      `).join('')
+    : '<div class="empty-state"><div class="icon">📭</div><p>No attendance today yet</p></div>';
+  document.getElementById('recentEntries').innerHTML = recentHTML;
+}
+
+async function loadExamples() {
+  const r = await apiGet('/ai/examples');
+  if (!r) return;
+  const el = document.getElementById('queryExamples');
+  el.innerHTML = r.examples.slice(0,4).map(q => `
+    <button class="btn btn-secondary btn-sm" onclick="setQuery('${q.replace(/'/g,"\\'")}')">
+      ${q}
+    </button>
+  `).join('');
+}
+
+function setQuery(q) {
+  document.getElementById('quickQuery').value = q;
+  runQuickQuery();
+}
+
+async function runQuickQuery() {
+  const q = document.getElementById('quickQuery').value.trim();
+  if (!q) return;
+  const el = document.getElementById('queryResult');
+  el.style.display = 'block';
+  el.innerHTML = '<div class="loading"><div class="spinner"></div> Processing query...</div>';
+  const r = await apiPost('/ai/query', { query: q });
+  if (!r || !r.ok) {
+    el.innerHTML = '<span style="color:var(--danger)">Query failed. Try again.</span>';
+    return;
+  }
+  const data = r.data;
+  el.innerHTML = `
+    <div style="font-weight:600;color:var(--text);margin-bottom:6px">💡 ${data.summary}</div>
+    <div style="color:var(--muted);font-size:12px">${data.result.count} record(s) found • ${data.result.explanation}</div>
+    ${data.result.rows.length > 0 ? `
+      <div style="margin-top:10px;max-height:200px;overflow-y:auto">
+        <table style="width:100%;font-size:12px">
+          <thead><tr>${Object.keys(data.result.rows[0]).map(k => `<th style="text-align:left;padding:4px 8px;color:var(--muted)">${k}</th>`).join('')}</tr></thead>
+          <tbody>${data.result.rows.slice(0,10).map(row => `<tr>${Object.values(row).map(v => `<td style="padding:4px 8px;color:var(--text2)">${v ?? '-'}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+      </div>
+    ` : ''}
+  `;
+}
+
+loadDashboard();
+loadExamples();
+</script>
+</body>
+</html>

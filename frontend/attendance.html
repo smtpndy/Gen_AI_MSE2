@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Attendance — FaceAttend</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .live-grid { display:grid; grid-template-columns:2fr 1fr; gap:24px; }
+  .camera-wrap { position:relative; }
+  .scan-line {
+    position:absolute; left:0; right:0; height:2px;
+    background: linear-gradient(90deg, transparent, var(--accent2), transparent);
+    animation: scanLine 3s linear infinite;
+    pointer-events:none; z-index:5;
+  }
+  @keyframes scanLine { 0%{top:10%} 100%{top:90%} }
+  .status-indicator {
+    position:absolute; top:12px; left:12px; z-index:10;
+    display:flex; align-items:center; gap:8px;
+    background:rgba(0,0,0,0.7); backdrop-filter:blur(8px);
+    border-radius:20px; padding:6px 14px;
+    font-size:12px; font-weight:600;
+  }
+  .dot {
+    width:8px; height:8px; border-radius:50%;
+    background: var(--danger);
+    animation: blink 1s ease-in-out infinite;
+  }
+  .dot.active { background: var(--success); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .result-card {
+    padding:20px; border-radius:14px; margin-bottom:12px;
+    border: 1px solid;
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn { from{transform:translateX(20px);opacity:0} to{transform:translateX(0);opacity:1} }
+  .result-card.success {
+    background: rgba(0,229,160,0.08);
+    border-color: rgba(0,229,160,0.25);
+  }
+  .result-card.warning {
+    background: rgba(255,179,71,0.08);
+    border-color: rgba(255,179,71,0.25);
+  }
+  .result-card.error {
+    background: rgba(255,77,109,0.08);
+    border-color: rgba(255,77,109,0.25);
+  }
+  .result-name {
+    font-family: var(--font-head); font-size:18px; font-weight:700;
+    color:white; margin-bottom:4px;
+  }
+  .attendance-log {
+    max-height:400px; overflow-y:auto;
+  }
+  .attendance-log::-webkit-scrollbar { width:4px; }
+  .attendance-log::-webkit-scrollbar-track { background: var(--surface); }
+  .attendance-log::-webkit-scrollbar-thumb { background: var(--border2); border-radius:2px; }
+  .control-row { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<main class="main">
+  <div class="page-header">
+    <h1>📸 Live Attendance</h1>
+    <p id="liveDate">Loading date...</p>
+  </div>
+
+  <div class="live-grid">
+    <!-- Camera Panel -->
+    <div class="card camera-wrap">
+      <div class="control-row">
+        <button class="btn btn-primary" id="startBtn" onclick="startCamera()">▶ Start Camera</button>
+        <button class="btn btn-danger" id="stopBtn" onclick="stopRecognition()" disabled>■ Stop</button>
+        <button class="btn btn-secondary" id="scanBtn" onclick="toggleScan()" disabled>🔄 Auto Scan: OFF</button>
+        <div style="flex:1"></div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)">
+          Interval: <input type="range" min="500" max="3000" step="500" value="1500" id="intervalRange" style="width:80px;background:none;border:none;padding:0" oninput="updateInterval(this.value)"> <span id="intervalLabel">1.5s</span>
+        </div>
+      </div>
+
+      <div class="camera-box" style="min-height:400px;">
+        <video id="video" autoplay muted playsinline style="display:none"></video>
+        <canvas id="displayCanvas" style="display:none"></canvas>
+        <div id="placeholder" style="display:flex;align-items:center;justify-content:center;height:400px;flex-direction:column;gap:12px;color:var(--muted)">
+          <div style="font-size:64px">📷</div>
+          <p>Click "Start Camera" to begin face recognition attendance</p>
+        </div>
+        <div class="scan-line" id="scanLine" style="display:none"></div>
+        <div class="status-indicator" id="statusIndicator" style="display:none">
+          <div class="dot" id="dot"></div>
+          <span id="statusText">Initializing...</span>
+        </div>
+        <div class="recognition-banner" id="recognitionBanner" style="display:none"></div>
+      </div>
+
+      <!-- Today's Summary -->
+      <div style="display:flex;gap:16px;margin-top:16px">
+        <div style="flex:1;padding:14px;background:var(--surface);border-radius:10px;border:1px solid var(--border);text-align:center">
+          <div style="font-family:var(--font-head);font-size:24px;font-weight:800;color:var(--success)" id="presentCount">0</div>
+          <div style="font-size:12px;color:var(--muted)">Marked Today</div>
+        </div>
+        <div style="flex:1;padding:14px;background:var(--surface);border-radius:10px;border:1px solid var(--border);text-align:center">
+          <div style="font-family:var(--font-head);font-size:24px;font-weight:800;color:var(--accent)" id="totalCount">0</div>
+          <div style="font-size:12px;color:var(--muted)">Total Students</div>
+        </div>
+        <div style="flex:1;padding:14px;background:var(--surface);border-radius:10px;border:1px solid var(--border);text-align:center">
+          <div style="font-family:var(--font-head);font-size:24px;font-weight:800;color:white" id="pctCount">0%</div>
+          <div style="font-size:12px;color:var(--muted)">Attendance %</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Panel -->
+    <div>
+      <div class="card" style="margin-bottom:20px" id="currentResult" style="display:none"></div>
+
+      <div class="card">
+        <div class="section-title" style="justify-content:space-between">
+          <span>📋 Today's Log</span>
+          <span id="logCount" style="font-size:12px;color:var(--muted)">0 entries</span>
+        </div>
+        <div class="attendance-log" id="attendanceLog">
+          <div class="empty-state" style="padding:30px"><p>Attendance log will appear here</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/js/app.js"></script>
+<script>
+requireAuth();
+document.getElementById('sidebar-container').innerHTML = buildNav('attendance');
+document.getElementById('liveDate').textContent = new Date().toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+let stream = null;
+let scanInterval = null;
+let autoScan = false;
+let scanMs = 1500;
+let logEntries = [];
+let isScanning = false;
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width:640, height:480, facingMode:'user' } });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    video.style.display = 'block';
+    document.getElementById('displayCanvas').style.display = 'none';
+    document.getElementById('placeholder').style.display = 'none';
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+    document.getElementById('scanBtn').disabled = false;
+    document.getElementById('statusIndicator').style.display = 'flex';
+    document.getElementById('recognitionBanner').style.display = 'block';
+    document.getElementById('scanLine').style.display = 'block';
+    setStatus(false, 'Camera ready — click Auto Scan or scan manually');
+    loadTodayStats();
+  } catch(e) {
+    toast('Camera error: ' + e.message, 'error');
+  }
+}
+
+function stopRecognition() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+  autoScan = false;
+  document.getElementById('video').style.display = 'none';
+  document.getElementById('placeholder').style.display = 'flex';
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+  document.getElementById('scanBtn').disabled = true;
+  document.getElementById('statusIndicator').style.display = 'none';
+  document.getElementById('recognitionBanner').style.display = 'none';
+  document.getElementById('scanLine').style.display = 'none';
+  document.getElementById('scanBtn').textContent = '🔄 Auto Scan: OFF';
+}
+
+function toggleScan() {
+  autoScan = !autoScan;
+  document.getElementById('scanBtn').textContent = autoScan ? '⏸ Auto Scan: ON' : '🔄 Auto Scan: OFF';
+  if (autoScan) {
+    scanInterval = setInterval(performScan, scanMs);
+  } else {
+    clearInterval(scanInterval); scanInterval = null;
+  }
+}
+
+function updateInterval(val) {
+  scanMs = parseInt(val);
+  document.getElementById('intervalLabel').textContent = (scanMs/1000).toFixed(1) + 's';
+  if (scanInterval) {
+    clearInterval(scanInterval);
+    scanInterval = setInterval(performScan, scanMs);
+  }
+}
+
+function setStatus(active, text) {
+  const dot = document.getElementById('dot');
+  const statusText = document.getElementById('statusText');
+  const banner = document.getElementById('recognitionBanner');
+  dot.className = active ? 'dot active' : 'dot';
+  statusText.textContent = text;
+  banner.textContent = text;
+}
+
+async function performScan() {
+  if (!stream || isScanning) return;
+  isScanning = true;
+  setStatus(true, '🔍 Scanning...');
+
+  const video = document.getElementById('video');
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const frameData = canvas.toDataURL('image/jpeg', 0.7);
+
+  try {
+    const r = await fetch(`${API}/attendance/recognize`, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${getToken()}` },
+      body: JSON.stringify({ frame: frameData })
+    });
+    const data = await r.json();
+    handleResult(data);
+  } catch(e) {
+    setStatus(false, '⚠ Scan error - retrying...');
+  }
+  isScanning = false;
+}
+
+function handleResult(data) {
+  const resultEl = document.getElementById('currentResult');
+  resultEl.style.display = 'block';
+
+  if (data.success) {
+    if (data.already_marked) {
+      setStatus(false, `⚠ ${data.name} — already marked today`);
+      resultEl.className = 'card result-card warning';
+      resultEl.innerHTML = `
+        <div class="result-name">⚠ ${data.name}</div>
+        <div style="font-size:13px;color:var(--warning)">Already marked present today</div>
+        <div class="confidence-bar" style="margin-top:8px">
+          <span style="color:var(--muted);font-size:12px">Confidence:</span>
+          <div class="confidence-track"><div class="confidence-fill" style="width:${data.confidence}%"></div></div>
+          <span style="font-size:12px">${data.confidence?.toFixed(1)}%</span>
+        </div>
+      `;
+    } else {
+      setStatus(true, `✓ ${data.name} — Attendance marked!`);
+      resultEl.className = 'card result-card success';
+      resultEl.innerHTML = `
+        <div class="result-name">✓ ${data.name}</div>
+        <div style="font-size:13px;color:var(--success)">Attendance marked at ${new Date().toLocaleTimeString()}</div>
+        <div class="confidence-bar" style="margin-top:8px">
+          <span style="color:var(--muted);font-size:12px">Confidence:</span>
+          <div class="confidence-track"><div class="confidence-fill" style="width:${data.confidence}%"></div></div>
+          <span style="font-size:12px">${data.confidence?.toFixed(1)}%</span>
+        </div>
+      `;
+      addLogEntry(data.name, data.student_id, data.confidence);
+      loadTodayStats();
+      toast(`✓ ${data.name} marked present`, 'success');
+    }
+  } else {
+    setStatus(false, data.message || 'No face recognized');
+    resultEl.className = 'card result-card error';
+    resultEl.innerHTML = `
+      <div style="font-size:14px;color:var(--danger)">${data.message || 'Face not recognized'}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Ensure good lighting and face the camera directly</div>
+    `;
+  }
+}
+
+function addLogEntry(name, studentId, confidence) {
+  const time = new Date().toLocaleTimeString();
+  logEntries.unshift({ name, studentId, confidence, time });
+  const log = document.getElementById('attendanceLog');
+  document.getElementById('logCount').textContent = `${logEntries.length} entries`;
+  log.innerHTML = logEntries.map(e => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:32px;height:32px;background:linear-gradient(135deg,var(--success),#00b37e);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#001a10">${e.name[0]}</div>
+        <div>
+          <div style="font-size:13px;color:var(--text)">${e.name}</div>
+          <div style="font-size:11px;color:var(--muted)">${e.studentId}</div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:12px;color:var(--muted)">${e.time}</div>
+        <div style="font-size:11px;color:var(--success)">${e.confidence?.toFixed(0)}%</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadTodayStats() {
+  const data = await apiGet('/attendance/stats/overview');
+  if (!data) return;
+  document.getElementById('presentCount').textContent = data.today_present;
+  document.getElementById('totalCount').textContent = data.total_students;
+  document.getElementById('pctCount').textContent = data.today_percentage + '%';
+}
+
+// Load today's existing log on page load
+async function loadTodayLog() {
+  const data = await apiGet('/attendance/today');
+  if (!data) return;
+  document.getElementById('logCount').textContent = `${data.count} entries`;
+  if (data.records.length > 0) {
+    const log = document.getElementById('attendanceLog');
+    log.innerHTML = data.records.map(e => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">${e.name[0]}</div>
+          <div>
+            <div style="font-size:13px;color:var(--text)">${e.name}</div>
+            <div style="font-size:11px;color:var(--muted)">${e.roll_number} • ${e.branch}</div>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:12px;color:var(--muted)">${e.time_in}</div>
+          <span class="badge badge-success" style="font-size:10px">present</span>
+        </div>
+      </div>
+    `).join('');
+  }
+}
+
+loadTodayStats();
+loadTodayLog();
+</script>
+</body>
+</html>

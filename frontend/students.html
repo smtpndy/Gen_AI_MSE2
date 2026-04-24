@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Students — FaceAttend</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<main class="main">
+  <div class="page-header">
+    <h1>🎓 Students</h1>
+    <p>Manage all registered students</p>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-bar" style="flex:1;max-width:400px">
+      <input id="searchInput" placeholder="Search by name, ID, roll number..." oninput="filterStudents()">
+    </div>
+    <select id="branchFilter" onchange="filterStudents()" style="width:140px">
+      <option value="">All Branches</option>
+    </select>
+    <a href="/register" class="btn btn-primary" style="text-decoration:none">+ Register Student</a>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Student ID</th>
+            <th>Name</th>
+            <th>Roll No.</th>
+            <th>Branch</th>
+            <th>Face Images</th>
+            <th>Status</th>
+            <th>Registered</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="studentTable">
+          <tr><td colspan="9"><div class="loading"><div class="spinner"></div>Loading...</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Edit Student</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="form-grid">
+      <div class="form-group"><label>Name</label><input id="editName"></div>
+      <div class="form-group"><label>Branch</label>
+        <select id="editBranch">
+          <option>CSE</option><option>ECE</option><option>ME</option>
+          <option>CE</option><option>EE</option><option>IT</option><option>CHE</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Email</label><input id="editEmail" type="email"></div>
+      <div class="form-group"><label>Phone</label><input id="editPhone"></div>
+    </div>
+    <div style="margin-top:24px;display:flex;gap:10px">
+      <button class="btn btn-primary" onclick="saveEdit()">Save Changes</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+requireAuth();
+document.getElementById('sidebar-container').innerHTML = buildNav('students');
+
+let allStudents = [];
+let editingId = null;
+
+async function loadStudents() {
+  const data = await apiGet('/students/?active_only=false');
+  if (!data) return;
+  allStudents = data;
+  populateBranchFilter();
+  renderTable(allStudents);
+}
+
+function populateBranchFilter() {
+  const branches = [...new Set(allStudents.map(s => s.branch))].sort();
+  const sel = document.getElementById('branchFilter');
+  sel.innerHTML = '<option value="">All Branches</option>' + branches.map(b => `<option>${b}</option>`).join('');
+}
+
+function filterStudents() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const br = document.getElementById('branchFilter').value;
+  const filtered = allStudents.filter(s =>
+    (!br || s.branch === br) &&
+    (!q || s.name.toLowerCase().includes(q) || s.student_id.toLowerCase().includes(q) || s.roll_number.toLowerCase().includes(q))
+  );
+  renderTable(filtered);
+}
+
+function renderTable(students) {
+  const tbody = document.getElementById('studentTable');
+  if (students.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">🎓</div><p>No students found</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = students.map((s, i) => `
+    <tr>
+      <td>${i+1}</td>
+      <td><span style="font-family:var(--font-head);color:var(--accent)">${s.student_id}</span></td>
+      <td>${s.name}</td>
+      <td>${s.roll_number}</td>
+      <td><span class="badge badge-info">${s.branch}</span></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:60px;height:4px;border-radius:2px;background:var(--border);overflow:hidden">
+            <div style="width:${Math.min(100,(s.image_count/30)*100)}%;height:100%;background:${s.image_count>=10?'var(--success)':'var(--warning)'}"></div>
+          </div>
+          <span style="font-size:12px;color:${s.image_count>=10?'var(--success)':'var(--warning)'}">${s.image_count}</span>
+        </div>
+      </td>
+      <td><span class="badge ${s.is_active?'badge-success':'badge-danger'}">${s.is_active?'Active':'Inactive'}</span></td>
+      <td>${formatDate(s.registered_at)}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="openEdit('${s.student_id}')">✏</button>
+          <button class="btn btn-danger btn-sm" onclick="deactivateStudent('${s.student_id}','${s.name}')">🗑</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openEdit(studentId) {
+  const s = allStudents.find(st => st.student_id === studentId);
+  if (!s) return;
+  editingId = studentId;
+  document.getElementById('editName').value = s.name;
+  document.getElementById('editBranch').value = s.branch;
+  document.getElementById('editEmail').value = s.email || '';
+  document.getElementById('editPhone').value = s.phone || '';
+  document.getElementById('editModal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('editModal').classList.remove('open');
+  editingId = null;
+}
+
+async function saveEdit() {
+  if (!editingId) return;
+  const r = await apiPost(`/students/${editingId}`, {
+    name: document.getElementById('editName').value,
+    branch: document.getElementById('editBranch').value,
+    email: document.getElementById('editEmail').value || null,
+    phone: document.getElementById('editPhone').value || null,
+  });
+  if (r?.ok) {
+    toast('Student updated successfully', 'success');
+    closeModal();
+    loadStudents();
+  } else {
+    toast(r?.data?.detail || 'Update failed', 'error');
+  }
+}
+
+async function deactivateStudent(studentId, name) {
+  if (!confirm(`Deactivate ${name}? They will no longer be recognized.`)) return;
+  const r = await apiDelete(`/students/${studentId}`);
+  if (r?.ok) {
+    toast(`${name} deactivated`, 'success');
+    loadStudents();
+  } else {
+    toast('Failed to deactivate', 'error');
+  }
+}
+
+// Override apiPost for PUT method
+async function apiPost(path, body) {
+  const method = path.includes('/students/') && !path.includes('/upload') && !path.includes('/register') ? 'PUT' : 'POST';
+  const r = await fetch(`${API}${path}`, {
+    method,
+    headers: authHeaders(),
+    body: JSON.stringify(body)
+  });
+  if (r.status === 401) { logout(); return null; }
+  return { ok: r.ok, data: await r.json() };
+}
+
+loadStudents();
+</script>
+</body>
+</html>

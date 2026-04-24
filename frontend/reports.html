@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reports — FaceAttend</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="sidebar-container"></div>
+<main class="main">
+  <div class="page-header">
+    <h1>📋 Reports</h1>
+    <p>Generate and download attendance reports in PDF or Excel format</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 2fr;gap:24px;align-items:start">
+    <!-- Filter Panel -->
+    <div class="card">
+      <div class="section-title">🔍 Filters</div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="form-group">
+          <label>Start Date</label>
+          <input type="date" id="startDate">
+        </div>
+        <div class="form-group">
+          <label>End Date</label>
+          <input type="date" id="endDate">
+        </div>
+        <div class="form-group">
+          <label>Branch</label>
+          <select id="branchSel">
+            <option value="">All Branches</option>
+            <option>CSE</option><option>ECE</option><option>ME</option>
+            <option>CE</option><option>EE</option><option>IT</option><option>CHE</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Student ID (optional)</label>
+          <input id="studentIdSel" placeholder="e.g. STU2024001">
+        </div>
+
+        <button class="btn btn-primary" onclick="loadPreview()" style="width:100%">
+          🔎 Preview Report
+        </button>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <button class="btn btn-success" onclick="downloadReport('pdf')" id="pdfBtn">
+            📄 PDF
+          </button>
+          <button class="btn btn-secondary" onclick="downloadReport('excel')" id="xlsBtn">
+            📊 Excel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preview Panel -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div class="section-title" style="margin-bottom:0">📊 Report Preview</div>
+        <div id="previewStats" style="font-size:13px;color:var(--muted)"></div>
+      </div>
+
+      <!-- Summary Cards -->
+      <div id="summaryCards" style="display:none;margin-bottom:20px">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+          <div style="padding:16px;background:var(--surface);border-radius:12px;border:1px solid var(--border);text-align:center">
+            <div style="font-family:var(--font-head);font-size:24px;font-weight:800;color:var(--accent)" id="sumStudents">0</div>
+            <div style="font-size:12px;color:var(--muted)">Students</div>
+          </div>
+          <div style="padding:16px;background:var(--surface);border-radius:12px;border:1px solid var(--border);text-align:center">
+            <div style="font-family:var(--font-head);font-size:24px;font-weight:800;color:var(--success)" id="sumDays">0</div>
+            <div style="font-size:12px;color:var(--muted)">Days</div>
+          </div>
+          <div style="padding:16px;background:var(--surface);border-radius:12px;border:1px solid var(--border);text-align:center">
+            <div style="font-family:var(--font-head);font-size:24px;font-weight:800;color:white" id="sumRecords">0</div>
+            <div style="font-size:12px;color:var(--muted)">Records</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="previewTable">
+        <div class="empty-state">
+          <div class="icon">📋</div>
+          <p>Click "Preview Report" to see data</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/js/app.js"></script>
+<script>
+requireAuth();
+document.getElementById('sidebar-container').innerHTML = buildNav('reports');
+
+// Default date range: last 30 days
+const today = new Date();
+const last30 = new Date(today); last30.setDate(last30.getDate() - 30);
+document.getElementById('endDate').value = today.toISOString().split('T')[0];
+document.getElementById('startDate').value = last30.toISOString().split('T')[0];
+
+function getFilters() {
+  return {
+    start_date: document.getElementById('startDate').value || null,
+    end_date: document.getElementById('endDate').value || null,
+    branch: document.getElementById('branchSel').value || null,
+    student_id: document.getElementById('studentIdSel').value.trim() || null,
+  };
+}
+
+async function loadPreview() {
+  document.getElementById('previewTable').innerHTML = '<div class="loading"><div class="spinner"></div> Loading preview...</div>';
+  document.getElementById('summaryCards').style.display = 'none';
+
+  const filters = getFilters();
+  const params = new URLSearchParams();
+  if (filters.start_date) params.set('start_date', filters.start_date);
+  if (filters.end_date) params.set('end_date', filters.end_date);
+  if (filters.branch) params.set('branch', filters.branch);
+  if (filters.student_id) params.set('student_id', filters.student_id);
+
+  const data = await apiGet('/reports/summary?' + params.toString());
+  if (!data) return;
+
+  document.getElementById('previewStats').textContent = `${data.total_records} records`;
+  document.getElementById('sumStudents').textContent = data.total_students;
+  document.getElementById('sumDays').textContent = data.total_days;
+  document.getElementById('sumRecords').textContent = data.total_records;
+  document.getElementById('summaryCards').style.display = 'block';
+
+  if (!data.students || data.students.length === 0) {
+    document.getElementById('previewTable').innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>No records found for selected filters</p></div>';
+    return;
+  }
+
+  document.getElementById('previewTable').innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Student ID</th>
+            <th>Name</th>
+            <th>Roll No.</th>
+            <th>Branch</th>
+            <th>Days Present</th>
+            <th>Attendance %</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.students.map((s, i) => `
+            <tr>
+              <td>${i+1}</td>
+              <td><span style="color:var(--accent);font-weight:600">${s.student_id}</span></td>
+              <td>${s.name}</td>
+              <td>${s.roll_number}</td>
+              <td><span class="badge badge-info">${s.branch}</span></td>
+              <td>${s.days_present}</td>
+              <td>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="width:60px;height:5px;border-radius:3px;background:var(--border);overflow:hidden">
+                    <div style="width:${s.percentage}%;height:100%;background:${s.percentage>=75?'var(--success)':s.percentage>=50?'var(--warning)':'var(--danger)'}"></div>
+                  </div>
+                  <span style="font-size:13px;font-weight:600;color:${s.percentage>=75?'var(--success)':s.percentage>=50?'var(--warning)':'var(--danger)'}">${s.percentage}%</span>
+                </div>
+              </td>
+              <td><span class="badge ${s.percentage>=75?'badge-success':s.percentage>=50?'badge-warning':'badge-danger'}">${s.percentage>=75?'Good':s.percentage>=50?'Average':'Low'}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function downloadReport(type) {
+  const btn = document.getElementById(type === 'pdf' ? 'pdfBtn' : 'xlsBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Generating...';
+  toast(`Generating ${type.toUpperCase()} report...`, 'info');
+
+  try {
+    const resp = await fetch(`${API}/reports/${type}`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(getFilters())
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || 'Generation failed');
+    }
+    const blob = await resp.blob();
+    const ext = type === 'pdf' ? 'pdf' : 'xlsx';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attendance_report_${new Date().toISOString().split('T')[0]}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast(`${type.toUpperCase()} downloaded successfully!`, 'success');
+  } catch(e) {
+    toast(e.message, 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = type === 'pdf' ? '📄 PDF' : '📊 Excel';
+}
+
+loadPreview();
+</script>
+</body>
+</html>
